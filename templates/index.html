@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Math Quiz — Fullstack</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body data-theme="light">
+  <div class="wrap">
+    <div class="card">
+      <div class="panel">
+        <div class="logo">
+          <div class="dot">M</div>
+          <div>
+            <h1>Math Quiz</h1>
+            <p class="lead">Train math — leaderboard saved on server.</p>
+          </div>
+        </div>
+
+        <div style="margin-top:18px">
+          <label style="font-size:13px;color:var(--muted);">PLAYER NAME</label>
+          <div class="input-row">
+            <input id="nameInput" type="text" placeholder="ENTER NAME" maxlength="12" autocomplete="off">
+            <button id="startBtn" class="primary">Play</button>
+          </div>
+          <div class="meta">Name converted to <strong>UPPERCASE</strong> automatically.</div>
+        </div>
+
+        <div class="top-list">
+          <h3 style="font-size:14px;margin-bottom:8px;color:var(--muted)">Top Players</h3>
+          <div id="leaderboard"></div>
+        </div>
+
+        <div style="margin-top:14px;color:var(--muted);font-size:13px">Settings</div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button id="resetBoard" class="ghost">Reset Scores</button>
+          <button id="demoBtn" class="ghost">Demo Question</button>
+          <button id="themeToggle" class="ghost">Toggle Dark</button>
+        </div>
+      </div>
+
+      <div class="game-area">
+        <div class="status">
+          <div class="left">
+            <div class="pill" id="levelPill">Level 1</div>
+            <div class="score">Score: <span id="scoreVal">0</span></div>
+          </div>
+          <div class="right">
+            <div style="text-align:right;color:var(--muted);font-size:13px">Answer quickly!</div>
+          </div>
+        </div>
+        <div class="question-card">
+          <div class="qtext" id="questionText">Press Play to start</div>
+          <div class="timer-row">
+            <div class="timer-bar">
+              <div id="timerFill" class="timer-fill"></div>
+            </div>
+            <div class="timer-num" id="timerNum">--s</div>
+          </div>
+          <div class="options" id="optionsWrap"></div>
+        </div>
+        <div class="footer">
+          <div style="color:var(--muted)">Levels: 5 • Division yields exact integer answers</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="modal">
+      <h2>Game Over</h2>
+      <p>Your score: <strong id="overScore">0</strong> (Level <span id="overLevel">1</span>)</p>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
+        <button id="playAgain" class="primary">Play Again</button>
+        <button id="closeOver" class="ghost">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="levelup-notify" id="levelupNotify">🎉 Level Up! 🎉</div>
+
+  <script src="/static/game.js"></script>
+</body>
+
+</html>
