@@ -332,3 +332,125 @@ button.ghost {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---- Smooth Modern UI Animation Pack ---- */
+
+/* Page fade-in */
+.wrap {
+  animation: fadeIn 0.55s ease;
+}
+
+/* Question card entrance */
+.question-card {
+  opacity: 0;
+  transform: translateY(12px) scale(0.97);
+  animation: cardIn 0.45s ease forwards;
+}
+
+/* Option hover */
+.opt {
+  transition: transform .25s ease, box-shadow .25s ease, background .25s ease;
+}
+
+.opt:hover {
+  transform: scale(1.04);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.06);
+}
+
+/* Option click feedback */
+.opt:active {
+  transform: scale(0.96);
+}
+
+/* Correct answer smooth success animation */
+.opt.correct {
+  animation: correctPulse .5s ease forwards;
+}
+
+/* Wrong answer smooth shake */
+.opt.wrong {
+  animation: wrongShake .4s ease;
+}
+
+/* Timer smooth drain */
+#timerFill {
+  transition: width 1s linear;
+}
+
+/* Score subtle pop */
+.score {
+  animation: scorePulse .35s ease;
+}
+
+
+/* ---- Keyframes ---- */
+
+/* Page fade */
+@keyframes fadeIn {
+  from {
+    opacity: 0
+  }
+
+  to {
+    opacity: 1
+  }
+}
+
+/* Card fade + smooth lift */
+@keyframes cardIn {
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Soft pulse for correct */
+@keyframes correctPulse {
+  0% {
+    transform: scale(1);
+  }
+
+  40% {
+    transform: scale(1.12);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Gentle shake — not cartoony */
+@keyframes wrongShake {
+
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  25% {
+    transform: translateX(-6px);
+  }
+
+  50% {
+    transform: translateX(6px);
+  }
+
+  75% {
+    transform: translateX(-4px);
+  }
+}
+
+/* Score text pulse */
+@keyframes scorePulse {
+  0% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.18);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
