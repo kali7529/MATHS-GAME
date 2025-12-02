@@ -1,4 +1,4 @@
-// Improved + defensive JS for math quiz
+// game.js - Improved Stability Version
 
 const LEVELS = [
   { min: 1, max: 10, time: 10, scoreTo: 4 },
@@ -9,340 +9,405 @@ const LEVELS = [
 ];
 const MAX_LEADERBOARD = 10;
 
-let playerName = '', score = 0, currentLevel = 0, currentQuestion = null, timerId = null, timeLeft = 0, running = false;
+// State
+let state = {
+  playerName: '',
+  score: 0,
+  currentLevel: 0,
+  running: false,
+  processingAnswer: false, // Prevents double clicking
+  timerId: null,
+  endTime: 0,
+  question: null
+};
 
-const nameInput = document.getElementById('nameInput');
-const startBtn = document.getElementById('startBtn');
-const leaderboardEl = document.getElementById('leaderboard');
-const levelPill = document.getElementById('levelPill');
-const scoreVal = document.getElementById('scoreVal');
-const questionText = document.getElementById('questionText');
-const optionsWrap = document.getElementById('optionsWrap');
-const timerFill = document.getElementById('timerFill');
-const timerNum = document.getElementById('timerNum');
-const overlay = document.getElementById('overlay');
-const overScore = document.getElementById('overScore');
-const overLevel = document.getElementById('overLevel');
-const playAgain = document.getElementById('playAgain');
-const closeOver = document.getElementById('closeOver');
-const levelupNotify = document.getElementById('levelupNotify');
-const resetBoard = document.getElementById('resetBoard');
-const demoBtn = document.getElementById('demoBtn');
-const themeToggle = document.getElementById('themeToggle');
+// DOM Elements
+const els = {
+  nameInput: document.getElementById('nameInput'),
+  startBtn: document.getElementById('startBtn'),
+  leaderboard: document.getElementById('leaderboard'),
+  levelPill: document.getElementById('levelPill'),
+  scoreVal: document.getElementById('scoreVal'),
+  questionText: document.getElementById('questionText'),
+  optionsWrap: document.getElementById('optionsWrap'),
+  timerFill: document.getElementById('timerFill'),
+  timerNum: document.getElementById('timerNum'),
+  overlay: document.getElementById('overlay'),
+  overScore: document.getElementById('overScore'),
+  overLevel: document.getElementById('overLevel'),
+  playAgain: document.getElementById('playAgain'),
+  closeOver: document.getElementById('closeOver'),
+  levelupNotify: document.getElementById('levelupNotify'),
+  resetBoard: document.getElementById('resetBoard'),
+  demoBtn: document.getElementById('demoBtn'),
+  themeToggle: document.getElementById('themeToggle')
+};
 
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-function playLevelUpSound() {
+// Audio Init (Lazy load)
+const AudioContext = window.AudioContext || window.webkitAudioContext;
+let audioCtx = new AudioContext();
+
+function ensureAudio() {
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(e => console.log(e));
+  }
+}
+
+function playSound(type) {
+  if (!audioCtx) return;
+  ensureAudio();
+
   try {
-    const notes = [523, 659, 784];
-    notes.forEach((f, i) => setTimeout(() => {
-      const o = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      o.type = 'sine'; o.frequency.value = f;
-      g.gain.value = 0.09;
-      o.connect(g); g.connect(audioCtx.destination);
-      o.start(); o.stop(audioCtx.currentTime + 0.35);
-    }, i * 100));
-  } catch (e) { }
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.connect(g);
+    g.connect(audioCtx.destination);
+
+    const now = audioCtx.currentTime;
+
+    if (type === 'levelup') {
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(440, now);
+      o.frequency.exponentialRampToValueAtTime(880, now + 0.1);
+      g.gain.setValueAtTime(0.1, now);
+      g.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+      o.start(now);
+      o.stop(now + 0.3);
+    } else if (type === 'wrong') {
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(150, now);
+      o.frequency.linearRampToValueAtTime(100, now + 0.2);
+      g.gain.setValueAtTime(0.1, now);
+      g.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+      o.start(now);
+      o.stop(now + 0.2);
+    }
+  } catch (e) { /* ignore audio errors */ }
 }
 
-function showLevelUpNotification() {
-  levelupNotify.classList.add('show');
-  setTimeout(() => levelupNotify.classList.remove('show'), 1500);
-}
+// --- Logic ---
 
-function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 
 async function fetchLeaderboard() {
   try {
-    const r = await fetch('/api/leaderboard');
-    if (!r.ok) throw new Error('fetch leaderboard failed');
-    const data = await r.json();
+    const res = await fetch('/api/leaderboard');
+    if (!res.ok) throw new Error('Network err');
+    const data = await res.json();
     renderLeaderboard(data);
-    return data;
   } catch (e) {
-    console.error(e);
+    console.warn("Leaderboard fetch failed:", e);
     renderLeaderboard([]);
-    return [];
   }
 }
 
 function renderLeaderboard(data) {
-  const list = (data || []).slice(0, MAX_LEADERBOARD);
-  leaderboardEl.innerHTML = list.map((r, i) => `<div class="top-item"><div style="font-weight:700">${i + 1}. ${escapeHtml(r.name)}</div><div style="color:var(--muted)">${r.score}</div></div>`).join('') || '<div style="color:var(--muted)">No scores yet</div>';
+  // Safety check if data is not array
+  const list = Array.isArray(data) ? data.slice(0, MAX_LEADERBOARD) : [];
+
+  els.leaderboard.innerHTML = list.length
+    ? list.map((r, i) => `
+        <div class="top-item">
+          <div style="font-weight:700">${i + 1}. ${escapeHtml(r.name)}</div>
+          <div style="color:var(--muted)">${r.score}</div>
+        </div>`).join('')
+    : '<div style="color:var(--muted); font-style:italic;">No scores yet</div>';
 }
 
-function escapeHtml(s) { return String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]); }
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.innerText = str;
+  return div.innerHTML;
+}
 
-function computeLevelFromScore(sc) {
+function updateUI() {
+  els.levelPill.textContent = `Level ${state.currentLevel + 1}`;
+  els.scoreVal.textContent = state.score;
+}
+
+function getLevelIndex(score) {
   for (let i = 0; i < LEVELS.length; i++) {
-    if (sc <= LEVELS[i].scoreTo) return i;
+    if (score <= LEVELS[i].scoreTo) return i;
   }
   return LEVELS.length - 1;
 }
 
-function updateUI() {
-  levelPill.textContent = `Level ${currentLevel + 1}`;
-  scoreVal.textContent = score;
-}
-
-function randInt(a, b) { return Math.floor(Math.random() * (b - a + 1)) + a; }
-
-// safer division pair generator
-function makeDivisionPair(min, max) {
-  // choose small divisor to keep numbers reasonable
-  const possibleDivisors = [];
-  for (let d = 1; d <= Math.min(20, Math.floor(max / 1)); d++) {
-    possibleDivisors.push(d);
-  }
-  const b = possibleDivisors[randInt(0, possibleDivisors.length - 1)];
-  const maxMult = Math.max(1, Math.floor(max / b));
-  const mult = randInt(Math.max(1, min), maxMult);
-  return [b * mult, b];
-}
+// --- Question Generator ---
 
 function generateQuestion() {
-  const cfg = LEVELS[currentLevel];
-  let a, b, op, answer;
+  const cfg = LEVELS[state.currentLevel];
   const ops = ['+', '-', '*', '/'];
-  op = ops[randInt(0, ops.length - 1)];
+  const op = ops[randInt(0, 3)];
+  let a, b, ans;
 
   if (op === '/') {
-    [a, b] = makeDivisionPair(cfg.min, cfg.max);
-    answer = Math.floor(a / b);
+    // Generate clean division (integer result)
+    // Avoid division by 1 often as it's too easy, unless low level
+    const minDiv = cfg.min > 1 ? 2 : 1;
+    const maxDiv = Math.max(minDiv, Math.floor(Math.sqrt(cfg.max))); // Keep divisors reasonable
+    b = randInt(minDiv, maxDiv);
+    ans = randInt(cfg.min, Math.floor(cfg.max / b));
+    a = ans * b;
+    // Recalculate ans just to be safe
+    ans = a / b;
   } else {
     a = randInt(cfg.min, cfg.max);
     b = randInt(cfg.min, cfg.max);
-    if (op === '+') answer = a + b;
-    else if (op === '-') answer = a - b;
-    else answer = a * b;
+    if (op === '+') ans = a + b;
+    else if (op === '-') ans = a - b;
+    else ans = a * b;
   }
 
-  const text = `${a} ${op} ${b}`;
-  const opts = new Set([answer]);
-  const spread = clamp(Math.floor((cfg.max - cfg.min) / 6), 6, 200);
+  // Generate wrong options
+  const opts = new Set([ans]);
+  const range = Math.max(5, Math.floor(ans * 0.5)); // Spread based on answer magnitude
 
-  while (opts.size < 4) {
-    let delta = randInt(-spread, spread);
-    if (delta === 0) delta = randInt(1, 5);
-    let w = answer + delta;
-    if (currentLevel < 2) w = Math.max(0, w);
-    opts.add(w);
+  // Safety counter to prevent infinite loops if we can't find numbers
+  let safety = 0;
+  while (opts.size < 4 && safety < 100) {
+    safety++;
+    let offset = randInt(-range, range);
+    if (offset === 0) offset = 1;
+
+    let wrong = ans + offset;
+    // Don't show negative numbers in early levels
+    if (state.currentLevel < 2 && wrong < 0) wrong = Math.abs(wrong);
+
+    opts.add(wrong);
   }
 
-  const options = Array.from(opts);
-  // shuffle
-  for (let i = options.length - 1; i > 0; i--) {
-    const j = randInt(0, i);
-    [options[i], options[j]] = [options[j], options[i]];
+  // Convert set to array and shuffle
+  const optionsArr = Array.from(opts);
+  for (let i = optionsArr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [optionsArr[i], optionsArr[j]] = [optionsArr[j], optionsArr[i]];
   }
-  return { text, answer, options };
+
+  return { text: `${a} ${op} ${b}`, answer: ans, options: optionsArr };
 }
 
-function stopTimer() { if (timerId) { clearInterval(timerId); timerId = null; } }
-function startTimer(seconds) {
+// --- Timer System ---
+
+function startTimer() {
   stopTimer();
-  timeLeft = seconds;
-  updateTimerVisual();
-  const step = 100; // ms
-  timerId = setInterval(() => {
-    timeLeft -= step / 1000;
-    if (timeLeft <= 0) {
-      timeLeft = 0;
-      updateTimerVisual();
-      timesUp();
-    } else updateTimerVisual();
-  }, step);
+  const cfg = LEVELS[state.currentLevel];
+  const durationMs = cfg.time * 1000;
+  state.endTime = Date.now() + durationMs;
+
+  updateTimerVisual(durationMs, durationMs); // Init state
+
+  state.timerId = setInterval(() => {
+    const remaining = state.endTime - Date.now();
+    if (remaining <= 0) {
+      stopTimer();
+      updateTimerVisual(0, durationMs);
+      onTimesUp();
+    } else {
+      updateTimerVisual(remaining, durationMs);
+    }
+  }, 100);
 }
 
-function updateTimerVisual() {
-  const cfg = LEVELS[currentLevel];
-  const pct = clamp(timeLeft / cfg.time, 0, 1);
-  timerFill.style.width = (pct * 100) + '%';
-  timerNum.textContent = Math.ceil(timeLeft) + 's';
+function stopTimer() {
+  if (state.timerId) {
+    clearInterval(state.timerId);
+    state.timerId = null;
+  }
 }
 
-function presentQuestion() {
+function updateTimerVisual(remainMs, totalMs) {
+  const pct = Math.max(0, (remainMs / totalMs) * 100);
+  const sec = Math.ceil(remainMs / 1000);
+  els.timerFill.style.width = `${pct}%`;
+  els.timerNum.textContent = `${sec}s`;
+}
+
+// --- Game Flow ---
+
+function startGame() {
+  state.score = 0;
+  state.currentLevel = 0;
+  state.running = true;
+  state.processingAnswer = false;
+
+  updateUI();
+  nextQuestion();
+}
+
+function nextQuestion() {
+  if (!state.running) return;
+  state.processingAnswer = false;
+
+  // Guard against errors in generator
   try {
-    currentQuestion = generateQuestion();
-    questionText.textContent = 'Q: ' + currentQuestion.text;
-    optionsWrap.innerHTML = '';
-    currentQuestion.options.forEach(opt => {
-      const b = document.createElement('button');
-      b.className = 'opt';
-      b.textContent = opt;
-      b.disabled = false;
-      b.addEventListener('click', () => { if (!running) return; handleAnswer(opt, b); });
-      optionsWrap.appendChild(b);
-    });
-    startTimer(LEVELS[currentLevel].time);
-  } catch (err) {
-    console.error('presentQuestion error', err);
-    // fallback to safe state
-    resetGame();
+    state.question = generateQuestion();
+  } catch (e) {
+    console.error("Gen error", e);
+    // Fallback simple question
+    state.question = { text: "1 + 1", answer: 2, options: [1, 2, 3, 4] };
   }
+
+  // Render
+  els.questionText.textContent = `Q: ${state.question.text}`;
+  els.optionsWrap.innerHTML = '';
+
+  state.question.options.forEach(opt => {
+    const btn = document.createElement('button');
+    btn.className = 'opt';
+    btn.textContent = opt;
+    btn.onclick = () => onAnswer(opt, btn);
+    els.optionsWrap.appendChild(btn);
+  });
+
+  startTimer();
 }
 
-function handleAnswer(choice, el) {
-  if (!running) return;
-  running = false;
+function onAnswer(choice, btnEl) {
+  // Prevent double clicks or clicks after timeout
+  if (!state.running || state.processingAnswer) return;
+
+  state.processingAnswer = true; // Lock input
   stopTimer();
-  // disable all options immediately
-  Array.from(optionsWrap.children).forEach(x => x.disabled = true);
-  const correct = Number(choice) === Number(currentQuestion.answer);
+
+  const correct = (Number(choice) === state.question.answer);
+
+  // Disable all buttons immediately to prevent spam
+  const allBtns = els.optionsWrap.querySelectorAll('.opt');
+  allBtns.forEach(b => b.disabled = true);
 
   if (correct) {
-    el.classList.add('correct');
-    score += 1;
-    const prev = currentLevel;
-    currentLevel = computeLevelFromScore(score);
+    btnEl.classList.add('correct');
+    state.score++;
+
+    const prevLevel = state.currentLevel;
+    state.currentLevel = getLevelIndex(state.score);
     updateUI();
 
-    if (currentLevel > prev) {
-      try { audioCtx.resume(); } catch (e) { }
-      playLevelUpSound();
-      showLevelUpNotification();
+    if (state.currentLevel > prevLevel) {
+      playSound('levelup');
+      showLevelUp();
     }
 
-    // small delay then next question
-    setTimeout(() => {
-      running = true;
-      presentQuestion();
-    }, 600);
+    // Short delay before next question
+    setTimeout(nextQuestion, 500);
   } else {
-    el.classList.add('wrong');
-    Array.from(optionsWrap.children).forEach(b => {
-      if (Number(b.textContent) === currentQuestion.answer) b.classList.add('correct');
+    // Highlight wrong answer and the correct one
+    playSound('wrong');
+    btnEl.classList.add('wrong');
+    allBtns.forEach(b => {
+      if (Number(b.textContent) === state.question.answer) b.classList.add('correct');
     });
-    setTimeout(gameOver, 900);
+    setTimeout(gameOver, 1000);
   }
 }
 
-function timesUp() {
-  stopTimer();
-  running = false;
-  Array.from(optionsWrap.children).forEach(b => {
-    if (Number(b.textContent) === currentQuestion.answer) b.classList.add('correct');
-    else b.classList.add('wrong');
+function onTimesUp() {
+  if (!state.running) return;
+  state.running = false;
+  state.processingAnswer = true;
+
+  // Show correct answer
+  const allBtns = els.optionsWrap.querySelectorAll('.opt');
+  allBtns.forEach(b => {
     b.disabled = true;
+    if (Number(b.textContent) === state.question.answer) b.classList.add('correct');
+    else b.classList.add('wrong');
   });
-  setTimeout(gameOver, 900);
+
+  setTimeout(gameOver, 1000);
+}
+
+function showLevelUp() {
+  els.levelupNotify.classList.add('show');
+  setTimeout(() => els.levelupNotify.classList.remove('show'), 1500);
 }
 
 async function gameOver() {
-  running = false;
+  state.running = false;
   stopTimer();
-  overScore.textContent = score;
-  overLevel.textContent = currentLevel + 1;
-  overlay.classList.add('show');
-  try {
-    await saveScoreToServer({ name: playerName || 'UNKNOWN', score, level: currentLevel + 1 });
-    await fetchLeaderboard();
-  } catch (e) { console.error(e); }
-}
 
-async function saveScoreToServer(entry) {
-  try {
-    const r = await fetch('/api/leaderboard', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(entry)
-    });
-    if (!r.ok) throw new Error('save failed');
-    return await r.json();
-  } catch (e) {
-    console.error(e);
-    throw e;
+  els.overScore.textContent = state.score;
+  els.overLevel.textContent = state.currentLevel + 1;
+  els.overlay.classList.add('show');
+
+  // Submit score
+  if (state.score > 0) {
+    try {
+      await fetch('/api/leaderboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: state.playerName,
+          score: state.score,
+          level: state.currentLevel + 1
+        })
+      });
+      fetchLeaderboard(); // Refresh list
+    } catch (e) {
+      console.error("Save score failed", e);
+    }
   }
 }
 
-function beginGame() {
-  score = 0;
-  currentLevel = 0;
-  running = true;
-  updateUI();
-  presentQuestion();
-}
+// --- Event Listeners ---
 
-function resetGame() {
-  score = 0;
-  currentLevel = 0;
-  running = false;
-  updateUI();
-  questionText.textContent = 'Press Play to start';
-  optionsWrap.innerHTML = '';
-  timerFill.style.width = '100%';
-  timerNum.textContent = '--s';
-  stopTimer();
-}
-
-// UI bindings
-startBtn.addEventListener('click', () => {
-  const val = nameInput.value.trim().toUpperCase();
-  if (!val) { nameInput.focus(); return; }
-  playerName = val.slice(0, 12);
-  nameInput.value = playerName;
-  beginGame();
+els.startBtn.addEventListener('click', () => {
+  ensureAudio();
+  const name = els.nameInput.value.replace(/[^A-Za-z0-9 \-]/g, '').trim().toUpperCase();
+  if (!name) {
+    els.nameInput.focus();
+    els.nameInput.style.borderColor = "var(--danger)";
+    return;
+  }
+  els.nameInput.style.borderColor = "";
+  state.playerName = name.slice(0, 12);
+  els.nameInput.value = state.playerName; // Update UI with sanitized
+  startGame();
 });
 
-nameInput.addEventListener('input', e => {
-  e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9 \-]/g, '');
+// Allow pressing Enter in name field
+els.nameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') els.startBtn.click();
 });
 
-demoBtn.addEventListener('click', () => {
-  currentLevel = 0;
-  score = 0;
-  updateUI();
-  running = false;
-  currentQuestion = generateQuestion();
-  questionText.textContent = 'Demo: ' + currentQuestion.text;
-  optionsWrap.innerHTML = '';
-  currentQuestion.options.forEach(opt => {
-    const b = document.createElement('div');
-    b.className = 'opt';
-    b.textContent = opt;
-    optionsWrap.appendChild(b);
+els.playAgain.addEventListener('click', () => {
+  els.overlay.classList.remove('show');
+  startGame();
+});
+
+els.closeOver.addEventListener('click', () => {
+  els.overlay.classList.remove('show');
+  els.questionText.textContent = "Press Play to start";
+  els.optionsWrap.innerHTML = "";
+  els.timerFill.style.width = "100%";
+  els.timerNum.textContent = "--s";
+});
+
+els.resetBoard.addEventListener('click', async () => {
+  if (!confirm("Are you sure you want to clear the leaderboard?")) return;
+  await fetch('/api/leaderboard/reset', { method: 'POST' });
+  fetchLeaderboard();
+});
+
+els.themeToggle.addEventListener('click', () => {
+  const isDark = document.body.getAttribute('data-theme') === 'dark';
+  document.body.setAttribute('data-theme', isDark ? 'light' : 'dark');
+});
+
+// Demo mode
+els.demoBtn.addEventListener('click', () => {
+  state.currentLevel = 0; // Reset difficulty for demo
+  state.question = generateQuestion();
+  els.questionText.textContent = "Demo: " + state.question.text;
+  els.optionsWrap.innerHTML = '';
+  state.question.options.forEach(opt => {
+    const d = document.createElement('div');
+    d.className = 'opt';
+    d.textContent = opt;
+    els.optionsWrap.appendChild(d);
   });
-  timerFill.style.width = '100%';
-  timerNum.textContent = '--s';
 });
 
-resetBoard.addEventListener('click', async () => {
-  if (!confirm('Reset leaderboard?')) return;
-  try {
-    const r = await fetch('/api/leaderboard/reset', { method: 'POST' });
-    if (!r.ok) throw new Error('reset failed');
-    await fetchLeaderboard();
-    alert('Leaderboard cleared.');
-  } catch (e) {
-    console.error(e);
-    alert('Failed to reset.');
-  }
-});
-
-themeToggle.addEventListener('click', () => {
-  const body = document.body;
-  if (body.getAttribute('data-theme') === 'dark') {
-    body.setAttribute('data-theme', 'light');
-    themeToggle.textContent = 'Toggle Dark';
-  } else {
-    body.setAttribute('data-theme', 'dark');
-    themeToggle.textContent = 'Toggle Light';
-  }
-});
-
-playAgain.addEventListener('click', () => {
-  overlay.classList.remove('show');
-  resetGame();
-  beginGame();
-});
-closeOver.addEventListener('click', () => overlay.classList.remove('show'));
-
-document.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && document.activeElement === nameInput) startBtn.click();
-});
-
-document.addEventListener('click', () => { if (audioCtx.state === 'suspended') audioCtx.resume(); }, { once: true });
-
-// startup
+// Init
 fetchLeaderboard();
-updateUI();
