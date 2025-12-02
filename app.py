@@ -97,8 +97,17 @@ def post_score():
 
 @app.route("/api/leaderboard/reset", methods=["POST"])
 def reset_board():
+    # Get JSON data from the request
+    data = request.get_json() or {}
+    
+    # CHECK PASSWORD
+    if data.get("password") != "8055":
+        return jsonify({"ok": False, "error": "Incorrect password"}), 403
+
+    # If password is correct, clear the file safely
     with file_lock:
         save_board([])
+        
     return jsonify({"ok": True})
 
 if __name__ == "__main__":
