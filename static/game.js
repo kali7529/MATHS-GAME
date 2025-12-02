@@ -408,6 +408,33 @@ els.demoBtn.addEventListener('click', () => {
     els.optionsWrap.appendChild(d);
   });
 });
+els.resetBoard.addEventListener('click', async () => {
+  // Ask for password instead of just confirming
+  const password = prompt("Enter password to clear leaderboard:");
 
+  // If user clicked Cancel or typed nothing, stop
+  if (!password) return;
+
+  try {
+    const r = await fetch('/api/leaderboard/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: password }) // Send password to server
+    });
+
+    const data = await r.json();
+
+    if (data.ok) {
+      await fetchLeaderboard();
+      alert('Leaderboard cleared successfully.');
+    } else {
+      // Show the error message from python (e.g. "Incorrect password")
+      alert(data.error || 'Failed to reset.');
+    }
+  } catch (e) {
+    console.error(e);
+    alert('Network error.');
+  }
+});
 // Init
 fetchLeaderboard();
